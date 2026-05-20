@@ -289,11 +289,41 @@ function loadConfig() {
   return ensureConfigShape(readJson(CONFIG_PATH, {}));
 }
 
-function saveConfig(config, reason = "Saved configuration") {
+function currentConfigRevision() {
+  const current = readJson(CONFIG_PATH, {});
+  return Number(current.revision || 0);
+}
+
+function saveConfig(config, reason = "Saved configuration", options = {}) {
+  const currentRevision = currentConfigRevision();
+  if (options.expectedRevision !== undefined && Number(options.expectedRevision || 0) !== currentRevision) {
+    const error = new Error("This dashboard view is out of date. Reload the page and try again.");
+    error.statusCode = 409;
+    throw error;
+  }
   const next = ensureConfigShape(config);
+  next.revision = currentRevision + 1;
   writeJson(CONFIG_PATH, next);
   addChange(reason, { server: next.serverName, mods: String(next.mods.length) });
   return next;
+}
+
+function configWithoutPreviewNoise(config) {
+  const shaped = ensureConfigShape(config);
+  return JSON.stringify({
+    ...shaped,
+    revision: 0,
+    mods: (shaped.mods || []).map(mod => ({
+      ...mod,
+      workshopPreview: null,
+      configFiles: (mod.configFiles || []).map(file => ({
+        path: file.path,
+        relativePath: file.relativePath,
+        size: file.size,
+        extension: file.extension
+      }))
+    }))
+  });
 }
 
 function runPowershell(script, args = []) {
@@ -842,6 +872,27 @@ function buildServerLines(config) {
     Mods: [...new Set(modIds)].join(";"),
     Map: orderedMaps.join(";")
   };
+}
+
+function removeWorkshopModFromConfig(config, workshopId) {
+  const id = String(workshopId || "").trim();
+  if (!id) throw new Error("Missing Workshop ID for removal.");
+  config.mods = config.mods || [];
+  const beforeCount = config.mods.length;
+  const removed = config.mods.find(mod => String(mod.workshopId || "") === id);
+  config.mods = config.mods.filter(mod => String(mod.workshopId || "") !== id);
+  if (config.mods.length === beforeCount) throw new Error(`Workshop ${id} is not in this server profile.`);
+
+  config.mods = config.mods.map((mod, index) => ({ ...mod, loadOrder: index + 1 }));
+  const next = saveConfig(config, "Removed Workshop mod from local Host profile");
+  const iniPath = applyConfigToIni(next);
+  addChange("Removed Workshop mod", {
+    server: next.serverName,
+    workshopId: id,
+    title: removed?.title || "",
+    file: iniPath
+  });
+  return { config: next, removed, iniPath };
 }
 
 function applyConfigToIni(config) {
@@ -2372,7 +2423,9 @@ async function handleApi(req, res, pathname) {
 
   if (req.method === "POST" && pathname === "/api/config") {
     const incoming = await readBody(req);
-    return json(res, 200, saveConfig(incoming));
+    const current = loadConfig();
+    if (configWithoutPreviewNoise(incoming) === configWithoutPreviewNoise(current)) return json(res, 200, current);
+    return json(res, 200, saveConfig(incoming, "Saved configuration", { expectedRevision: incoming.revision || 0 }));
   }
 
   if (req.method === "POST" && pathname === "/api/setup") {
@@ -2566,6 +2619,11 @@ async function handleApi(req, res, pathname) {
     return json(res, 200, { ...result, config: next, iniPath, workshopSync });
   }
 
+  if (req.method === "POST" && pathname === "/api/mods/remove-workshop") {
+    const body = await readBody(req);
+    return json(res, 200, removeWorkshopModFromConfig(loadConfig(), body.workshopId));
+  }
+
   if (req.method === "POST" && pathname === "/api/workshop/search") {
     const body = await readBody(req);
     const days = Number(body.days || 90);
@@ -2639,7 +2697,10 @@ function serveStatic(req, res, pathname) {
     return res.end("Not found");
   }
   const types = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript" };
-  res.writeHead(200, { "content-type": `${types[path.extname(full)] || "application/octet-stream"}; charset=utf-8` });
+  res.writeHead(200, {
+    "content-type": `${types[path.extname(full)] || "application/octet-stream"}; charset=utf-8`,
+    "cache-control": "no-store"
+  });
   fs.createReadStream(full).pipe(res);
 }
 
@@ -2649,8 +2710,9 @@ http.createServer(async (req, res) => {
     if (pathname.startsWith("/api/")) return await handleApi(req, res, pathname);
     return serveStatic(req, res, pathname);
   } catch (err) {
-    log(`Error: ${err.stack || err.message}`);
-    return json(res, 500, { error: err.message });
+    const status = err.statusCode || 500;
+    if (status >= 500) log(`Error: ${err.stack || err.message}`);
+    return json(res, status, { error: err.message });
   }
 }).listen(PORT, () => {
   log(`Project Zomboid local server mod manager running at http://localhost:${PORT}`);

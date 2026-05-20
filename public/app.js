@@ -161,10 +161,7 @@ function renderMods() {
     previewButton.addEventListener("click", () => openWorkshopPreview(mod.workshopId).catch(alertError));
     const titlePreview = row.querySelector(".title-preview");
     titlePreview.addEventListener("click", () => openWorkshopPreview(mod.workshopId).catch(alertError));
-    row.querySelector("[data-action='delete']").addEventListener("click", () => {
-      config.mods.splice(index, 1);
-      saveConfig().catch(alertError);
-    });
+    row.querySelector("[data-action='delete']").addEventListener("click", event => removeWorkshopMod(mod, event.currentTarget).catch(alertError));
     list.appendChild(row);
     hydrateThumb(mod, previewButton).catch(() => {});
   });
@@ -191,7 +188,6 @@ async function hydrateThumb(mod, button) {
   mod.workshopPreview = detail;
   button.innerHTML = renderThumbContent(mod);
   button.dataset.loading = "false";
-  saveConfig("quiet").catch(() => {});
 }
 
 function renderConfigFileHints(mod) {
@@ -379,6 +375,36 @@ async function setPlayerAccess(username, role) {
   renderServerPlayers();
   await refreshChanges();
   showToast(`${targetUsername} is ${formatRole(targetRole)}`);
+}
+
+async function removeWorkshopMod(mod, button) {
+  if (!mod?.workshopId) {
+    const index = config.mods.indexOf(mod);
+    if (index >= 0) config.mods.splice(index, 1);
+    await saveConfig();
+    showToast("Removed!");
+    return;
+  }
+  const originalText = button?.textContent || "Remove";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Removing...";
+  }
+  try {
+    const data = await api("/api/mods/remove-workshop", { method: "POST", body: { workshopId: mod.workshopId } });
+    config = data.config;
+    fillForm();
+    renderAll();
+    if (recommendedItems.length) showRecommended(recommendedItems, recommendedSource);
+    await loadFiles().catch(() => {});
+    await refreshChanges();
+    showToast("Removed!");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 async function addWorkshopMod(workshopId, button) {
