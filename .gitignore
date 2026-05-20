@@ -1,0 +1,13 @@
+node_modules/
+dist/
+npm-debug.log*
+
+# Local runtime state lives in %APPDATA%\PZLocalModManager.
+data/change-log.jsonl
+data/workshop-cache.sqlite*
+config/server-config.local.json
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/

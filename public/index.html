@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PZ Local Server Mod Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>PZ Local Server Mod Manager</h1>
+      <p>Edits your local Host profile, then launches Project Zomboid when you are ready.</p>
+    </div>
+    <div class="header-actions">
+      <button id="launchGame">Launch Project Zomboid</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <aside class="sidebar">
+      <section class="side-section">
+        <h2>Profile</h2>
+        <div class="profile-current">
+          <span>Editing</span>
+          <strong id="currentProfileName">FriendsB42</strong>
+        </div>
+        <select id="profileSelect"></select>
+        <button id="loadProfile">Load Profile</button>
+        <div class="profile-create">
+          <input id="newProfileName" placeholder="New profile name">
+          <button id="createProfile">Create</button>
+        </div>
+      </section>
+
+      <section class="side-section compact">
+        <h2>Status</h2>
+        <div class="stat"><span>Manager</span><strong id="jobStatus">Idle</strong></div>
+        <div class="stat"><span>Dedicated</span><strong id="serverStatus">Stopped</strong></div>
+        <div class="stat"><span>Mods</span><strong id="modCount">0</strong></div>
+        <div class="stat"><span>Maps</span><strong id="mapCount">1</strong></div>
+      </section>
+
+      <section class="side-section compact">
+        <h2>Utilities</h2>
+        <button id="scanMods">Scan Downloaded Mods</button>
+        <button id="installSteamCmd">Install SteamCMD</button>
+        <button id="openFirewall">Open Firewall Ports</button>
+        <button id="installServer">Update Dedicated Tool</button>
+        <button id="testModsServer">Test Mods On Server</button>
+        <button id="startServer">Start Dedicated</button>
+        <button id="stopServer">Stop Dedicated</button>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <nav class="tabs" aria-label="Manager sections">
+        <button class="tab active" data-tab="mods">Mods</button>
+        <button class="tab" data-tab="maps">Maps</button>
+        <button class="tab" data-tab="workshop">Workshop</button>
+        <button class="tab" data-tab="files">Config Files</button>
+        <button class="tab" data-tab="settings">Settings</button>
+        <button class="tab" data-tab="log">Changes</button>
+      </nav>
+
+      <section id="tab-mods" class="tab-panel active">
+        <div class="panel-head">
+          <div>
+            <h2>Mods</h2>
+            <p>A clean Build 42 list for the selected Host profile.</p>
+          </div>
+          <button id="addBlankMod">Add Manually</button>
+        </div>
+        <div id="warnings" class="warnings"></div>
+        <div id="modsList" class="mod-table"></div>
+      </section>
+
+      <section id="tab-maps" class="tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Map Folders</h2>
+            <p>Custom maps should appear before <code>Muldraugh, KY</code>. The manager keeps vanilla last.</p>
+          </div>
+          <button id="addMapFolder">Add Map Folder</button>
+        </div>
+        <div id="mapList" class="map-list"></div>
+      </section>
+
+      <section id="tab-workshop" class="tab-panel">
+        <div class="workshop-add">
+          <div>
+            <h2>Add Workshop Item</h2>
+            <p>Paste a Steam Workshop ID. The manager will pull the mod details and dependencies in the background.</p>
+          </div>
+          <div class="workshop-add-row">
+            <input id="workshopIdInput" placeholder="Steam Workshop ID">
+            <button id="addWorkshopId" class="primary">Add</button>
+          </div>
+        </div>
+        <div class="panel-head">
+          <div>
+            <h2>Top Rated Build 42 Picks</h2>
+            <p>Search by name or browse recent top-rated Build 42 Workshop items. Still check each page for MP support.</p>
+          </div>
+          <div class="workshop-search">
+            <input id="workshopSearch" placeholder="Search mod name">
+            <button id="searchWorkshop">Search</button>
+            <button id="refreshRecommended">Top Rated</button>
+          </div>
+        </div>
+        <div id="recommended" class="recommend-grid"></div>
+      </section>
+
+      <section id="tab-files" class="tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Profile Files</h2>
+            <p>For mod options and sandbox tweaks, edit the real files under <code>Zomboid/Server</code>.</p>
+          </div>
+          <div class="row-actions">
+            <button id="reloadFiles">Reload Files</button>
+            <button id="saveFiles" class="primary">Save Files</button>
+          </div>
+        </div>
+        <div class="file-grid">
+          <label>server.ini <small id="iniPath"></small><textarea id="iniText" spellcheck="false"></textarea></label>
+          <label>SandboxVars.lua <small id="sandboxPath"></small><textarea id="sandboxText" spellcheck="false"></textarea></label>
+          <label>spawnregions.lua <small id="spawnRegionsPath"></small><textarea id="spawnRegionsText" spellcheck="false"></textarea></label>
+          <label>spawnpoints.lua <small id="spawnPointsPath"></small><textarea id="spawnPointsText" spellcheck="false"></textarea></label>
+        </div>
+      </section>
+
+      <section id="tab-settings" class="tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Manager Settings</h2>
+            <p>These paths are stored in your Windows AppData folder, not in the GitHub project.</p>
+          </div>
+          <button id="saveSettings" class="primary">Save Settings</button>
+        </div>
+        <div id="setupSummary" class="setup-summary"></div>
+        <div class="settings-grid">
+          <label>Steam folder <input id="steamDir" placeholder="C:\Program Files (x86)\Steam"></label>
+          <label>Project Zomboid folder <input id="pzGameDir" placeholder="...\steamapps\common\ProjectZomboid"></label>
+          <label>Host profiles folder <input id="pzServerDir" placeholder="C:\Users\you\Zomboid\Server"></label>
+          <label>SteamCMD folder <input id="steamCmdDir" placeholder="%LOCALAPPDATA%\PZLocalModManager\steamcmd"></label>
+          <label>Dedicated server tool folder <input id="serverDir" placeholder="%LOCALAPPDATA%\PZLocalModManager\pz-dedicated"></label>
+          <label>Memory MB <input id="memoryMb" type="number" min="1024" step="512"></label>
+          <label>Server name <input id="serverName" placeholder="FriendsB42"></label>
+          <label>Public name <input id="publicName" placeholder="Friends B42 Server"></label>
+          <label>Server password <input id="serverPassword" placeholder="Optional"></label>
+          <label>Max players <input id="maxPlayers" type="number" min="1" max="100"></label>
+          <label>Game port <input id="defaultPort" type="number"></label>
+          <label>UDP port <input id="udpPort" type="number"></label>
+        </div>
+      </section>
+
+      <section id="tab-log" class="tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Server Test</h2>
+            <p>Watch the headless server boot, download Workshop items, and report whether the mod list is actually being exercised.</p>
+          </div>
+          <button id="runServerTest" class="primary">Run Test</button>
+        </div>
+        <div class="test-summary">
+          <div class="test-card">
+            <span>State</span>
+            <strong id="testState">Idle</strong>
+          </div>
+          <div class="test-card">
+            <span>Mods In Test</span>
+            <strong id="testModCount">0</strong>
+          </div>
+          <div class="test-card">
+            <span>Latest Activity</span>
+            <strong id="testActivity">No test run yet</strong>
+          </div>
+        </div>
+        <div id="testResults" class="test-results"></div>
+        <h2 class="console-title">Live Server Log</h2>
+        <pre id="log"></pre>
+      </section>
+    </section>
+  </main>
+
+  <div id="workshopModal" class="modal-shell" hidden>
+    <div class="modal-backdrop" data-close-preview></div>
+    <section class="workshop-window" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+      <header class="workshop-window-head">
+        <div>
+          <h2 id="previewTitle">Workshop Preview</h2>
+          <p id="previewSubtitle">Loading Steam Workshop details</p>
+        </div>
+        <div class="modal-actions">
+          <a id="previewSteamLink" href="#" target="_blank" rel="noreferrer">Open Steam</a>
+          <button id="closePreview" aria-label="Close Workshop preview">Close</button>
+        </div>
+      </header>
+      <div class="workshop-window-body">
+        <div class="media-area">
+          <div id="mediaStage" class="media-stage"></div>
+          <div id="mediaStrip" class="media-strip"></div>
+        </div>
+        <aside class="preview-info">
+          <div id="previewTags" class="tag-list"></div>
+          <dl>
+            <dt>Workshop ID</dt>
+            <dd id="previewWorkshopId"></dd>
+            <dt>Rating</dt>
+            <dd id="previewRating"></dd>
+            <dt>Mod IDs</dt>
+            <dd id="previewModIds"></dd>
+            <dt>Map Folders</dt>
+            <dd id="previewMapFolders"></dd>
+            <dt>Dependencies</dt>
+            <dd id="previewDeps"></dd>
+          </dl>
+          <p id="previewDescription"></p>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/app.js?v=20260518-dependency-resolver"></script>
+</body>
+</html>

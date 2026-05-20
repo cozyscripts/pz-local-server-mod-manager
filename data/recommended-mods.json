@@ -1,0 +1,38 @@
+{
+  "source": "Steam Workshop browse results filtered to Project Zomboid Build 42, top rated over 90 days, checked 2026-05-16.",
+  "workshopUrl": "https://steamcommunity.com/workshop/browse/?appid=108600&requiredtags%5B%5D=Build+42&browsesort=toprated&section=readytouseitems&actualsort=toprated&p=1&days=90",
+  "items": [
+    { "workshopId": "3661336777", "title": "Horse Mod [B42.14+/MP SOON]", "author": "albion", "kind": "mod", "note": "Workshop title says MP soon; check before using on a dedicated server." },
+    { "workshopId": "3413150945", "title": "More Damaged Objects [42MP]", "author": "carlesturo", "kind": "mod" },
+    { "workshopId": "3635591071", "title": "Realistic Dashboard & Gauges [MP] [Beta]", "author": "LonelyDesperate", "kind": "mod" },
+    { "workshopId": "3461263912", "title": "Clean HotBar [B42]", "author": "Rocco", "kind": "mod" },
+    { "workshopId": "3401134276", "title": "Vanilla Gear Expanded", "author": "Tango", "kind": "mod" },
+    { "workshopId": "3414634809", "title": "Spongie's Character Customisation", "author": "spongie", "kind": "mod" },
+    { "workshopId": "3420581050", "title": "TV & Radio ReInvented", "author": "tealera", "kind": "mod" },
+    { "workshopId": "3546314080", "title": "[B42] Water Pipes", "author": "Slayer", "kind": "mod" },
+    { "workshopId": "3386906181", "title": "[B42] Sandbox Options", "author": "Zky", "kind": "mod" },
+    { "workshopId": "3670064951", "title": "Campers!", "author": "KI5", "kind": "mod" },
+    { "workshopId": "3360392628", "title": "Map Mod Manager (41 and 42)", "author": "jiizzjacuzzii", "kind": "map-tool" },
+    { "workshopId": "3618557184", "title": "Here Goes the Sun [B42MP]", "author": "Bass", "kind": "mod" },
+    { "workshopId": "3436537035", "title": "[B42] Useful Barrels", "author": "GigaWatte", "kind": "mod" },
+    { "workshopId": "3437629766", "title": "CleanUI [B42]", "author": "Rocco", "kind": "mod" },
+    { "workshopId": "3470659758", "title": "The Shortcut [B42]", "author": "Rocco", "kind": "mod" },
+    { "workshopId": "3490188370", "title": "Project Cook [B42]", "author": "Rocco", "kind": "mod" },
+    { "workshopId": "3387957272", "title": "[B42.18] Detailed Descriptions for Occupations and Traits", "author": "Jetmax937", "kind": "mod" },
+    { "workshopId": "3423660713", "title": "Mod Load Order Sorter [b42]", "author": "REfRigERatoR", "kind": "mod-tool" },
+    { "workshopId": "3403180543", "title": "[B42] Week One NPC", "author": "Slayer", "kind": "mod" },
+    { "workshopId": "3387110070", "title": "They Knew [B42]", "author": "Afterworlds", "kind": "mod" }
+  ],
+  "maps": [
+    { "workshopId": "3507117617", "title": "Project Indiana Expansion B42 DEMO", "author": "360noHope", "kind": "map" },
+    { "workshopId": "3484263516", "title": "Raven Creek B42", "author": "BuchoJefe", "kind": "map" },
+    { "workshopId": "3580819781", "title": "Atlanta", "author": "柳丁", "kind": "map" },
+    { "workshopId": "3480990544", "title": "Constown (B42)", "author": "Konstantin_Ananas", "kind": "map" },
+    { "workshopId": "3494374578", "title": "[B42] SecretZ Pandemic (Alpha)", "author": "Chakal16", "kind": "map" },
+    { "workshopId": "3388468313", "title": "RaccoonCityB42", "author": "十叁", "kind": "map" },
+    { "workshopId": "3659676359", "title": "AnruisiTown (Military Bastion)", "author": "福子fuzi", "kind": "map" },
+    { "workshopId": "3428165477", "title": "Bunker: Last Minute Prepper (B42)", "author": "Fred Cooper", "kind": "map" },
+    { "workshopId": "3390897023", "title": "More Maps [B42]", "author": "Champy", "kind": "map" },
+    { "workshopId": "3475754603", "title": "West Point Expansion B42", "author": "BuchoJefe", "kind": "map" }
+  ]
+}

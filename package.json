@@ -1,0 +1,17 @@
+{
+  "name": "pz-b42-local-server-manager",
+  "version": "1.0.0",
+  "description": "Local Project Zomboid Build 42 dedicated server manager with a simple mod and map UI.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "package:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-release.ps1"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.6.0"
+  }
+}

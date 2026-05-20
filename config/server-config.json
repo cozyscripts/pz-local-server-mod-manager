@@ -1,0 +1,26 @@
+{
+  "serverName": "FriendsB42",
+  "publicName": "Friends B42 Server",
+  "mode": "host",
+  "adminPassword": "ChangeThisBeforeFirstRun",
+  "serverPassword": "",
+  "maxPlayers": 8,
+  "memoryMb": 8192,
+  "betaBranch": "unstable",
+  "steamDir": "",
+  "pzGameDir": "",
+  "pzServerDir": "",
+  "steamCmdDir": "",
+  "serverDir": "",
+  "defaultPort": 16261,
+  "udpPort": 16262,
+  "steamPort1": 8766,
+  "steamPort2": 8767,
+  "mapFolders": [
+    "Muldraugh, KY"
+  ],
+  "disabledMapFolders": [],
+  "mods": [],
+  "unresolvedRequirements": [],
+  "notes": "Clean source template. Runtime config is stored in %APPDATA%\\PZLocalModManager\\server-config.json."
+}

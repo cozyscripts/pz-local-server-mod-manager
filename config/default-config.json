@@ -1,0 +1,16 @@
+{
+  "serverName": "FriendsB42",
+  "publicName": "Friends B42 Server",
+  "mode": "host",
+  "maxPlayers": 8,
+  "memoryMb": 8192,
+  "betaBranch": "unstable",
+  "defaultPort": 16261,
+  "udpPort": 16262,
+  "steamPort1": 8766,
+  "steamPort2": 8767,
+  "mapFolders": [
+    "Muldraugh, KY"
+  ],
+  "mods": []
+}
