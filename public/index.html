@@ -58,6 +58,7 @@
         <button class="tab active" data-tab="mods">Mods</button>
         <button class="tab" data-tab="maps">Maps</button>
         <button class="tab" data-tab="workshop">Workshop</button>
+        <button class="tab" data-tab="server">Server</button>
         <button class="tab" data-tab="files">Config Files</button>
         <button class="tab" data-tab="settings">Settings</button>
         <button class="tab" data-tab="log">Changes</button>
@@ -128,6 +129,26 @@
           <label>spawnregions.lua <small id="spawnRegionsPath"></small><textarea id="spawnRegionsText" spellcheck="false"></textarea></label>
           <label>spawnpoints.lua <small id="spawnPointsPath"></small><textarea id="spawnPointsText" spellcheck="false"></textarea></label>
         </div>
+      </section>
+
+      <section id="tab-server" class="tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Server Management</h2>
+            <p>Set player access for the selected Host profile. Changes write directly to the profile database.</p>
+          </div>
+          <button id="refreshPlayers">Refresh Players</button>
+        </div>
+        <div class="access-editor">
+          <label>Username <input id="accessUsername" placeholder="ThatsNasty"></label>
+          <label>Access level <select id="accessRole"></select></label>
+          <button id="setAccessLevel" class="primary">Set Access</button>
+        </div>
+        <div class="server-db-note">
+          <span>Profile DB</span>
+          <code id="serverDbPath"></code>
+        </div>
+        <div id="playersList" class="players-list"></div>
       </section>
 
       <section id="tab-settings" class="tab-panel">

@@ -332,6 +332,184 @@ function profileRuntimeStatePaths(config) {
   ];
 }
 
+function serverDbPath(config) {
+  return path.join(USER_HOME, "Zomboid", "db", `${config.serverName}.db`);
+}
+
+function playersDbPath(config) {
+  return path.join(USER_HOME, "Zomboid", "Saves", "Multiplayer", config.serverName, "players.db");
+}
+
+function fallbackServerRoles() {
+  return [
+    { id: 7, name: "admin" },
+    { id: 6, name: "moderator" },
+    { id: 5, name: "gm" },
+    { id: 4, name: "observer" },
+    { id: 3, name: "priority" },
+    { id: 2, name: "user" },
+    { id: 1, name: "banned" }
+  ];
+}
+
+function readServerRoles(config) {
+  const dbFile = serverDbPath(config);
+  if (!fs.existsSync(dbFile)) return fallbackServerRoles();
+  const db = new Database(dbFile, { readonly: true, fileMustExist: true });
+  try {
+    return db.prepare("SELECT id, name FROM role ORDER BY id DESC").all();
+  } finally {
+    db.close();
+  }
+}
+
+function readKnownPlayers(config) {
+  const roles = readServerRoles(config);
+  const roleNames = new Map(roles.map(role => [Number(role.id), role.name]));
+  const players = new Map();
+  const profileDb = serverDbPath(config);
+  const characterDb = playersDbPath(config);
+
+  if (fs.existsSync(profileDb)) {
+    const db = new Database(profileDb, { readonly: true, fileMustExist: true });
+    try {
+      const rows = db.prepare(`
+        SELECT w.id, w.world, w.username, w.role, w.authType, w.steamid, w.ownerid, w.displayName, r.name AS roleName
+        FROM whitelist w
+        LEFT JOIN role r ON r.id = w.role
+        ORDER BY lower(w.username)
+      `).all();
+      for (const row of rows) {
+        const key = String(row.username || "").toLowerCase();
+        if (!key) continue;
+        players.set(key, {
+          source: "whitelist",
+          id: row.id,
+          username: row.username,
+          displayName: row.displayName || row.username,
+          characterName: "",
+          world: row.world || "",
+          role: row.role,
+          roleName: row.roleName || roleNames.get(Number(row.role)) || "user",
+          steamid: row.steamid ? String(row.steamid) : "",
+          ownerid: row.ownerid ? String(row.ownerid) : "",
+          authType: row.authType
+        });
+      }
+    } finally {
+      db.close();
+    }
+  }
+
+  if (fs.existsSync(characterDb)) {
+    const db = new Database(characterDb, { readonly: true, fileMustExist: true });
+    try {
+      const rows = db.prepare(`
+        SELECT username, name AS characterName, printf('%lld', steamid) AS steamid, x, y, z, isDead
+        FROM networkPlayers
+        WHERE username IS NOT NULL AND trim(username) <> ''
+        ORDER BY lower(username)
+      `).all();
+      for (const row of rows) {
+        const key = String(row.username || "").toLowerCase();
+        if (!key) continue;
+        const existing = players.get(key) || {
+          source: "players",
+          username: row.username,
+          displayName: row.username,
+          world: config.serverName,
+          role: null,
+          roleName: "not whitelisted",
+          steamid: "",
+          ownerid: "",
+          authType: null
+        };
+        existing.characterName = row.characterName || existing.characterName || "";
+        existing.steamid = row.steamid && row.steamid !== "0" ? String(row.steamid) : existing.steamid;
+        existing.position = { x: row.x, y: row.y, z: row.z };
+        existing.isDead = Boolean(row.isDead);
+        players.set(key, existing);
+      }
+    } finally {
+      db.close();
+    }
+  }
+
+  return {
+    profileDb,
+    playersDb: characterDb,
+    roles,
+    players: [...players.values()].sort((a, b) => String(a.username).localeCompare(String(b.username)))
+  };
+}
+
+function detectPlayerSteamId(config, username) {
+  const characterDb = playersDbPath(config);
+  if (!fs.existsSync(characterDb)) return "";
+  const db = new Database(characterDb, { readonly: true, fileMustExist: true });
+  try {
+    const row = db.prepare(`
+      SELECT printf('%lld', steamid) AS steamid
+      FROM networkPlayers
+      WHERE lower(username) = lower(?)
+      ORDER BY rowid DESC
+      LIMIT 1
+    `).get(username);
+    return row?.steamid && row.steamid !== "0" ? String(row.steamid) : "";
+  } finally {
+    db.close();
+  }
+}
+
+function setPlayerAccess(config, username, roleName) {
+  const cleanUsername = String(username || "").trim();
+  const cleanRole = String(roleName || "").trim().toLowerCase();
+  if (!cleanUsername) throw new Error("Enter a player username.");
+
+  const profileDb = serverDbPath(config);
+  if (!fs.existsSync(profileDb)) {
+    throw new Error(`The server database does not exist yet: ${profileDb}. Host the profile once, then set access levels.`);
+  }
+
+  const db = new Database(profileDb, { fileMustExist: true });
+  try {
+    const role = db.prepare("SELECT id, name FROM role WHERE lower(name) = lower(?)").get(cleanRole);
+    if (!role) {
+      const allowed = db.prepare("SELECT name FROM role ORDER BY id DESC").all().map(item => item.name).join(", ");
+      throw new Error(`Unknown access level "${roleName}". Use one of: ${allowed}.`);
+    }
+
+    const existing = db.prepare("SELECT * FROM whitelist WHERE lower(username) = lower(?) ORDER BY id DESC LIMIT 1").get(cleanUsername);
+    const steamid = String(existing?.steamid || detectPlayerSteamId(config, cleanUsername) || "");
+    const world = existing?.world || config.serverName || "";
+    const authType = existing?.authType ?? (steamid ? 2 : 1);
+    const displayName = existing?.displayName || cleanUsername;
+
+    if (existing) {
+      db.prepare(`
+        UPDATE whitelist
+        SET world = ?, role = ?, authType = ?, steamid = ?, displayName = ?
+        WHERE id = ?
+      `).run(world, role.id, authType, steamid, displayName, existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO whitelist (world, username, password, lastConnection, role, authType, googleKey, steamid, ownerid, displayName)
+        VALUES (?, ?, NULL, NULL, ?, ?, NULL, ?, NULL, ?)
+      `).run(world, cleanUsername, role.id, authType, steamid, displayName);
+    }
+
+    addChange("Updated player access", {
+      server: config.serverName,
+      username: cleanUsername,
+      role: role.name,
+      steamid
+    });
+    return { username: cleanUsername, role: role.name };
+  } finally {
+    db.close();
+  }
+}
+
 function latestServerLogText() {
   return [jobLog.slice(-1000).join("\n"), latestProjectZomboidLogText()].filter(Boolean).join("\n");
 }
@@ -2071,6 +2249,7 @@ async function handleApi(req, res, pathname) {
   if (req.method === "GET" && pathname === "/api/recommended") return json(res, 200, readJson(RECOMMENDED_PATH, { items: [], maps: [] }));
   if (req.method === "GET" && pathname === "/api/changes") return json(res, 200, { entries: readChanges() });
   if (req.method === "GET" && pathname === "/api/files") return json(res, 200, readProfileFiles(loadConfig()));
+  if (req.method === "GET" && pathname === "/api/server/players") return json(res, 200, readKnownPlayers(loadConfig()));
   if (req.method === "GET" && pathname === "/api/log") {
     const config = loadConfig();
     return json(res, 200, { activeJob: Boolean(activeJob), serverRunning: Boolean(gameProcess), steamApiRateLimited: isSteamRateLimited(), lines: jobLog, diagnostics: diagnoseServerLog(latestServerLogText(), config) });
@@ -2110,6 +2289,13 @@ async function handleApi(req, res, pathname) {
     const body = await readBody(req);
     saveProfileFiles(loadConfig(), body.files || {});
     return json(res, 200, readProfileFiles(loadConfig()));
+  }
+
+  if (req.method === "POST" && pathname === "/api/server/access") {
+    const config = loadConfig();
+    const body = await readBody(req);
+    setPlayerAccess(config, body.username, body.role);
+    return json(res, 200, readKnownPlayers(config));
   }
 
   if (req.method === "POST" && pathname === "/api/apply") {

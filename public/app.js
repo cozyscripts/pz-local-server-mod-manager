@@ -5,6 +5,7 @@ let recommendedItems = [];
 let recommendedSource = "";
 let lastLogStatus = { lines: [], serverRunning: false };
 let setupInfo = null;
+let serverPlayers = { roles: [], players: [] };
 
 const $ = id => document.getElementById(id);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -270,6 +271,7 @@ async function loadSelectedProfile() {
   fillForm();
   renderAll();
   await loadFiles();
+  await loadServerPlayers().catch(() => {});
   await refreshChanges();
 }
 
@@ -283,6 +285,7 @@ async function createProfile() {
   renderAll();
   await loadProfiles();
   await loadFiles();
+  await loadServerPlayers().catch(() => {});
   await refreshChanges();
   showToast("Profile created!");
 }
@@ -311,8 +314,71 @@ async function saveSettings() {
   config = data.config;
   await loadSetup();
   await loadProfiles();
+  await loadServerPlayers().catch(() => {});
   renderAll();
   showToast("Settings saved!");
+}
+
+async function loadServerPlayers() {
+  serverPlayers = await api("/api/server/players");
+  renderServerPlayers();
+}
+
+function renderServerPlayers() {
+  if (!$("playersList")) return;
+  const roles = serverPlayers.roles?.length ? serverPlayers.roles : [
+    { name: "admin" }, { name: "moderator" }, { name: "gm" }, { name: "observer" }, { name: "priority" }, { name: "user" }, { name: "banned" }
+  ];
+  const currentRole = $("accessRole")?.value || "admin";
+  if ($("accessRole")) {
+    $("accessRole").innerHTML = roles.map(role => `
+      <option value="${escapeAttr(role.name)}" ${role.name === currentRole ? "selected" : ""}>${escapeHtml(formatRole(role.name))}</option>
+    `).join("");
+  }
+  if ($("serverDbPath")) $("serverDbPath").textContent = serverPlayers.profileDb || "";
+
+  const players = serverPlayers.players || [];
+  if (!players.length) {
+    $("playersList").innerHTML = `<div class="empty">No known players yet. Host the server once, then refresh this list.</div>`;
+    return;
+  }
+  $("playersList").innerHTML = players.map(player => `
+    <article class="player-row">
+      <div>
+        <strong>${escapeHtml(player.username || "Unknown player")}</strong>
+        <span>${escapeHtml(player.characterName || player.displayName || "No character seen yet")}</span>
+      </div>
+      <div>
+        <small>SteamID</small>
+        <code>${escapeHtml(player.steamid || "not detected")}</code>
+      </div>
+      <div>
+        <small>Access</small>
+        <span class="role-pill ${escapeAttr(player.roleName || "user")}">${escapeHtml(formatRole(player.roleName || "user"))}</span>
+      </div>
+      <div class="player-actions">
+        <button data-user="${escapeAttr(player.username)}" data-role="admin">Admin</button>
+        <button data-user="${escapeAttr(player.username)}" data-role="user">User</button>
+      </div>
+    </article>
+  `).join("");
+  $("playersList").querySelectorAll("[data-user][data-role]").forEach(button => {
+    button.addEventListener("click", () => setPlayerAccess(button.dataset.user, button.dataset.role).catch(alertError));
+  });
+}
+
+function formatRole(role) {
+  return String(role || "user").replace(/\b\w/g, char => char.toUpperCase());
+}
+
+async function setPlayerAccess(username, role) {
+  const targetUsername = String(username || $("accessUsername")?.value || "").trim();
+  const targetRole = String(role || $("accessRole")?.value || "admin").trim();
+  if (!targetUsername) throw new Error("Enter a player username.");
+  serverPlayers = await api("/api/server/access", { method: "POST", body: { username: targetUsername, role: targetRole } });
+  renderServerPlayers();
+  await refreshChanges();
+  showToast(`${targetUsername} is ${formatRole(targetRole)}`);
 }
 
 async function addWorkshopMod(workshopId, button) {
@@ -794,6 +860,7 @@ async function init() {
   fillForm();
   renderAll();
   await loadProfiles();
+  await loadServerPlayers().catch(() => {});
   await refreshRecommended().catch(loadRecommended);
   await loadFiles();
   await refreshChanges();
@@ -807,6 +874,11 @@ async function init() {
     if (event.key === "Enter") createProfile().catch(alertError);
   });
   $("saveSettings").addEventListener("click", () => saveSettings().catch(alertError));
+  $("refreshPlayers").addEventListener("click", () => loadServerPlayers().catch(alertError));
+  $("setAccessLevel").addEventListener("click", () => setPlayerAccess().catch(alertError));
+  $("accessUsername").addEventListener("keydown", event => {
+    if (event.key === "Enter") setPlayerAccess().catch(alertError);
+  });
   $("launchGame").addEventListener("click", () => saveConfig("quiet").then(() => api("/api/game/launch", { method: "POST" })).then(refreshChanges).catch(alertError));
   $("openFirewall").addEventListener("click", () => saveConfig("quiet").then(() => api("/api/firewall", { method: "POST" })).catch(alertError));
   $("installSteamCmd").addEventListener("click", () => saveConfig("quiet").then(() => api("/api/install/steamcmd", { method: "POST" })).catch(alertError));

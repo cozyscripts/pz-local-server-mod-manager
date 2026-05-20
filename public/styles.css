@@ -485,6 +485,96 @@ code {
   color: #f0d27d;
 }
 
+.access-editor {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 220px) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.server-db-note {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #33413c;
+  background: #101514;
+  border-radius: 8px;
+  padding: 9px 10px;
+  margin-bottom: 12px;
+}
+
+.server-db-note span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.server-db-note code {
+  overflow-wrap: anywhere;
+}
+
+.players-list {
+  display: grid;
+  gap: 8px;
+}
+
+.player-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1fr) minmax(120px, .7fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #323d39;
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.player-row strong,
+.player-row span,
+.player-row small {
+  display: block;
+}
+
+.player-row small,
+.player-row span {
+  color: var(--muted);
+}
+
+.player-row code {
+  overflow-wrap: anywhere;
+}
+
+.role-pill {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid #45544f;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #d7e5d1;
+  background: #18201e;
+}
+
+.role-pill.admin {
+  border-color: #7da45a;
+  color: #dff7c9;
+  background: #1e2c19;
+}
+
+.role-pill.banned {
+  border-color: #8a4c4c;
+  color: #ffb3b3;
+  background: #2a1717;
+}
+
+.player-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .full {
   grid-column: 1 / -1;
 }
@@ -801,6 +891,7 @@ pre {
   .mod-fields,
   .file-grid,
   .settings-grid,
+  .access-editor,
   .setup-summary {
     grid-template-columns: 1fr;
   }
@@ -820,8 +911,17 @@ pre {
   }
 
   .mod-row,
+  .player-row,
   .test-result {
     grid-template-columns: 1fr;
+  }
+
+  .player-actions {
+    justify-content: stretch;
+  }
+
+  .player-actions button {
+    flex: 1;
   }
 
   .mod-thumb {
