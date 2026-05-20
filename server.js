@@ -17,6 +17,15 @@ const WORKSHOP_CACHE_PATH = path.join(APP_DATA_DIR, "workshop-cache.sqlite");
 const WORKSHOP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PORT = Number(process.env.PORT || 8787);
 const STEAM_WORKSHOP_APP = "108600";
+const SPECIAL_WORKSHOP_RULES = {
+  commonSensePatch: {
+    patchWorkshopId: "3667553980",
+    patchModId: "FE_CommonSensePatch",
+    requiredWorkshopId: "2875848298",
+    requiredModId: "BB_CommonSense",
+    requiredTitle: "Common Sense"
+  }
+};
 const FALLBACK_STEAM_DIRS = [
   "C:\\Program Files (x86)\\Steam",
   "C:\\Program Files\\Steam"
@@ -1585,6 +1594,102 @@ function activeInternalModIds(config) {
   return new Set(sortedEnabledMods(config).flatMap(mod => mod.modIds || []).filter(Boolean));
 }
 
+function modMatchesWorkshopOrModId(mod, workshopId, modId) {
+  return String(mod.workshopId || "") === String(workshopId) || (mod.modIds || []).includes(modId);
+}
+
+function ensureModBefore(config, beforeMod, afterMod) {
+  const mods = config.mods || [];
+  const beforeIndex = mods.indexOf(beforeMod);
+  const afterIndex = mods.indexOf(afterMod);
+  if (beforeIndex < 0 || afterIndex < 0 || beforeIndex < afterIndex) {
+    mods.forEach((mod, index) => mod.loadOrder = index + 1);
+    return false;
+  }
+
+  mods.splice(beforeIndex, 1);
+  const nextAfterIndex = mods.indexOf(afterMod);
+  mods.splice(Math.max(0, nextAfterIndex), 0, beforeMod);
+  mods.forEach((mod, index) => mod.loadOrder = index + 1);
+  return true;
+}
+
+function ensureCommonSensePatchDependency(config, actions = []) {
+  const rule = SPECIAL_WORKSHOP_RULES.commonSensePatch;
+  config.mods = config.mods || [];
+  const patch = config.mods.find(mod => modMatchesWorkshopOrModId(mod, rule.patchWorkshopId, rule.patchModId));
+  if (!patch || patch.enabled === false) return false;
+
+  let changed = false;
+  let original = config.mods.find(mod => modMatchesWorkshopOrModId(mod, rule.requiredWorkshopId, rule.requiredModId));
+  if (!original) {
+    original = {
+      enabled: true,
+      workshopId: rule.requiredWorkshopId,
+      title: rule.requiredTitle,
+      modIds: [rule.requiredModId],
+      mapFolders: [],
+      loadOrder: config.mods.length + 1,
+      requiredMods: [],
+      configFiles: [],
+      workshopPreview: null,
+      workshopOnly: false,
+      skipWorkshopItem: false,
+      notes: `Automatically added because ${patch.title || "Common Sense Patch"} requires the original Common Sense mod.`
+    };
+    config.mods.push(original);
+    actions.push({
+      level: "fixed",
+      title: "Added Common Sense dependency",
+      details: `${rule.requiredTitle} (${rule.requiredModId}) was added because ${patch.title || rule.patchModId} is installed.`,
+      workshopId: rule.requiredWorkshopId
+    });
+    changed = true;
+  } else {
+    const before = JSON.stringify({
+      enabled: original.enabled,
+      workshopId: original.workshopId,
+      modIds: original.modIds || [],
+      workshopOnly: original.workshopOnly,
+      skipWorkshopItem: original.skipWorkshopItem
+    });
+    original.enabled = true;
+    original.workshopId = rule.requiredWorkshopId;
+    original.title = original.title || rule.requiredTitle;
+    original.modIds = [...new Set([...(original.modIds || []), rule.requiredModId])];
+    original.workshopOnly = false;
+    original.skipWorkshopItem = false;
+    const after = JSON.stringify({
+      enabled: original.enabled,
+      workshopId: original.workshopId,
+      modIds: original.modIds || [],
+      workshopOnly: original.workshopOnly,
+      skipWorkshopItem: original.skipWorkshopItem
+    });
+    if (before !== after) {
+      actions.push({
+        level: "fixed",
+        title: "Repaired Common Sense dependency",
+        details: `${rule.requiredTitle} is enabled with Mod ID ${rule.requiredModId}.`,
+        workshopId: rule.requiredWorkshopId
+      });
+      changed = true;
+    }
+  }
+
+  if (ensureModBefore(config, original, patch)) {
+    actions.push({
+      level: "fixed",
+      title: "Moved Common Sense before its patch",
+      details: `${rule.requiredTitle} now loads before ${patch.title || rule.patchModId}.`,
+      workshopId: rule.patchWorkshopId
+    });
+    changed = true;
+  }
+
+  return changed;
+}
+
 function refreshModFromDownloadedFiles(config, mod, actions, options = {}) {
   if (!mod.workshopId) return false;
   const inspected = inspectWorkshopItem(config, mod.workshopId);
@@ -1723,6 +1828,8 @@ function troubleshootConfig(config) {
   config.mods = config.mods || [];
   config.mapFolders = config.mapFolders || ["Muldraugh, KY"];
 
+  if (ensureCommonSensePatchDependency(config, actions)) changed = true;
+
   for (const mod of config.mods) {
     if (refreshModFromDownloadedFiles(config, mod, actions)) changed = true;
     if (!mod.workshopOnly && !(mod.modIds || []).length && mod.workshopId) {
@@ -1744,6 +1851,7 @@ function troubleshootConfig(config) {
   const resolved = resolveInstalledRequiredMods(config, actions);
   if (resolved.added) {
     changed = true;
+    if (ensureCommonSensePatchDependency(config, actions)) changed = true;
     for (const mod of config.mods) {
       if (refreshModFromDownloadedFiles(config, mod, actions, { silentBlocked: true })) changed = true;
     }
@@ -2180,7 +2288,11 @@ function upsertWorkshopMod(config, detail, dependencyOf = "") {
 }
 
 async function addWorkshopWithDependencies(config, workshopId) {
+  const rule = SPECIAL_WORKSHOP_RULES.commonSensePatch;
   const queue = [{ id: workshopId, dependencyOf: "" }];
+  if (String(workshopId) === rule.patchWorkshopId) {
+    queue.push({ id: rule.requiredWorkshopId, dependencyOf: rule.patchWorkshopId });
+  }
   const visited = new Set();
   const resolved = [];
   const failed = [];
@@ -2208,6 +2320,8 @@ async function addWorkshopWithDependencies(config, workshopId) {
   for (const item of resolved.reverse()) {
     if (upsertWorkshopMod(config, item.detail, item.dependencyOf)) added++;
   }
+  const ruleActions = [];
+  if (ensureCommonSensePatchDependency(config, ruleActions)) added += ruleActions.filter(action => action.title.startsWith("Added ")).length;
   config.mods = (config.mods || []).map((mod, index) => ({ ...mod, loadOrder: index + 1 }));
 
   return {
@@ -2217,7 +2331,8 @@ async function addWorkshopWithDependencies(config, workshopId) {
       title: item.detail.title,
       dependencyOf: item.dependencyOf
     })).reverse(),
-    failed
+    failed,
+    actions: ruleActions
   };
 }
 
