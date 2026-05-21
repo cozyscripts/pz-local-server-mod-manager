@@ -55,6 +55,24 @@ button.primary {
   color: #fff;
 }
 
+.button-link {
+  min-height: 34px;
+  border: 1px solid #46514d;
+  background: #222928;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 10px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.button-link.primary {
+  background: var(--accent);
+  border-color: #7da45a;
+  color: #fff;
+}
+
 input,
 select,
 textarea {
@@ -483,6 +501,25 @@ code {
 
 .setup-summary .warn {
   color: #f0d27d;
+}
+
+.help-card {
+  display: grid;
+  gap: 8px;
+  max-width: 640px;
+  border: 1px solid #33413c;
+  background: #101514;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.help-card span {
+  color: var(--muted);
+}
+
+.help-card a {
+  color: #bce98e;
+  overflow-wrap: anywhere;
 }
 
 .access-editor {
