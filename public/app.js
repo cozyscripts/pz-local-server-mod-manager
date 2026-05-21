@@ -525,7 +525,8 @@ async function refreshLog() {
   const status = await api("/api/log");
   lastLogStatus = status;
   $("jobStatus").textContent = status.activeJob ? "Working" : "Idle";
-  $("serverStatus").textContent = status.serverRunning ? "Running" : "Stopped";
+  if ($("hostStatus")) $("hostStatus").textContent = status.hostGameRunning ? "Running" : "Not detected";
+  $("serverStatus").textContent = status.dedicatedServerRunning ? (status.managerTestRunning ? "Running" : "External") : "Stopped";
   $("log").textContent = status.lines.join("\n");
   $("log").scrollTop = $("log").scrollHeight;
   renderTestStatus(status);

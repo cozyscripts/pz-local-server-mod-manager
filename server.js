@@ -1508,6 +1508,16 @@ function findPzServerProcesses(config) {
   }
 }
 
+function isProjectZomboidGameRunning(config) {
+  const exe = spawnSync("powershell.exe", [
+    "-NoProfile",
+    "-Command",
+    "Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('ProjectZomboid64.exe','ProjectZomboid32.exe') -or ($_.Name -eq 'java.exe' -and $_.CommandLine -like '*ProjectZomboid*') } | Select-Object -First 1 ProcessId | ConvertTo-Json"
+  ], { encoding: "utf8", windowsHide: true });
+  if (exe.status === 0 && String(exe.stdout || "").trim()) return true;
+  return findPzServerProcesses(config).some(proc => proc.coop);
+}
+
 function stopOrphanDedicatedServers(config) {
   const stopped = [];
   for (const proc of findPzServerProcesses(config)) {
@@ -2440,7 +2450,18 @@ async function handleApi(req, res, pathname) {
   if (req.method === "GET" && pathname === "/api/server/players") return json(res, 200, readKnownPlayers(loadConfig()));
   if (req.method === "GET" && pathname === "/api/log") {
     const config = loadConfig();
-    return json(res, 200, { activeJob: Boolean(activeJob), serverRunning: Boolean(gameProcess), steamApiRateLimited: isSteamRateLimited(), lines: jobLog, diagnostics: diagnoseServerLog(latestServerLogText(), config) });
+    const pzProcesses = findPzServerProcesses(config);
+    const dedicatedServerRunning = Boolean(gameProcess) || pzProcesses.some(proc => !proc.coop);
+    return json(res, 200, {
+      activeJob: Boolean(activeJob),
+      serverRunning: dedicatedServerRunning,
+      dedicatedServerRunning,
+      managerTestRunning: Boolean(gameProcess),
+      hostGameRunning: isProjectZomboidGameRunning(config),
+      steamApiRateLimited: isSteamRateLimited(),
+      lines: jobLog,
+      diagnostics: diagnoseServerLog(latestServerLogText(), config)
+    });
   }
 
   if (req.method === "POST" && pathname === "/api/config") {
