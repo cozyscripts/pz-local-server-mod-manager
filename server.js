@@ -874,22 +874,56 @@ function buildServerLines(config) {
   };
 }
 
+function rebuildDerivedProfileState(config) {
+  config.mods = (config.mods || []).map((mod, index) => ({ ...mod, loadOrder: index + 1 }));
+  const activeMods = sortedEnabledMods(config);
+  const activeModIds = new Set(activeMods.flatMap(mod => mod.modIds || []).filter(Boolean));
+  const disabledMaps = new Set(config.disabledMapFolders || []);
+
+  config.unresolvedRequirements = [...new Set(activeMods
+    .flatMap(mod => mod.requiredMods || [])
+    .map(normalizeModRequirement)
+    .filter(Boolean)
+    .filter(req => !activeModIds.has(req)))];
+
+  const rebuiltMaps = [...new Set(activeMods
+    .flatMap(mod => mod.mapFolders || [])
+    .filter(Boolean)
+    .filter(folder => folder !== "Muldraugh, KY")
+    .filter(folder => !disabledMaps.has(folder)))];
+  rebuiltMaps.push("Muldraugh, KY");
+  config.mapFolders = rebuiltMaps;
+  return config;
+}
+
 function removeWorkshopModFromConfig(config, workshopId) {
   const id = String(workshopId || "").trim();
   if (!id) throw new Error("Missing Workshop ID for removal.");
   config.mods = config.mods || [];
   const beforeCount = config.mods.length;
   const removed = config.mods.find(mod => String(mod.workshopId || "") === id);
+  const removedModIds = new Set(removed?.modIds || []);
+  const removedMapFolders = new Set(removed?.mapFolders || []);
+  const removedConfigFiles = removed?.configFiles || [];
   config.mods = config.mods.filter(mod => String(mod.workshopId || "") !== id);
   if (config.mods.length === beforeCount) throw new Error(`Workshop ${id} is not in this server profile.`);
 
-  config.mods = config.mods.map((mod, index) => ({ ...mod, loadOrder: index + 1 }));
+  for (const mod of config.mods) {
+    mod.requiredMods = (mod.requiredMods || []).filter(req => !removedModIds.has(normalizeModRequirement(req)));
+  }
+  config.unresolvedRequirements = (config.unresolvedRequirements || []).filter(req => !removedModIds.has(normalizeModRequirement(req)));
+  config.mapFolders = (config.mapFolders || []).filter(folder => !removedMapFolders.has(folder));
+  rebuildDerivedProfileState(config);
+
   const next = saveConfig(config, "Removed Workshop mod from local Host profile");
   const iniPath = applyConfigToIni(next);
   addChange("Removed Workshop mod", {
     server: next.serverName,
     workshopId: id,
     title: removed?.title || "",
+    modIds: [...removedModIds].join(";"),
+    mapFolders: [...removedMapFolders].join(";"),
+    configFiles: String(removedConfigFiles.length),
     file: iniPath
   });
   return { config: next, removed, iniPath };
@@ -1908,14 +1942,10 @@ function troubleshootConfig(config) {
     }
   }
 
-  const activeIds = activeInternalModIds(config);
-  const unresolvedRequirements = [...new Set(sortedEnabledMods(config)
-    .flatMap(mod => (mod.requiredMods || []).map(req => ({ req: normalizeModRequirement(req), title: mod.title, workshopId: mod.workshopId })))
-    .filter(item => item.req && !activeIds.has(item.req))
-    .map(item => item.req))];
   const beforeUnresolvedRequirements = JSON.stringify(config.unresolvedRequirements || []);
-  config.unresolvedRequirements = unresolvedRequirements;
-  for (const req of unresolvedRequirements) {
+  const beforeMapFolders = JSON.stringify(config.mapFolders || []);
+  rebuildDerivedProfileState(config);
+  for (const req of config.unresolvedRequirements || []) {
     actions.push({
       level: "blocked",
       title: `Missing dependency Mod ID: ${req}`,
@@ -1923,16 +1953,8 @@ function troubleshootConfig(config) {
     });
   }
   if (beforeUnresolvedRequirements !== JSON.stringify(config.unresolvedRequirements || [])) changed = true;
-
-  const rebuiltMaps = [...new Set(config.mods
-    .filter(mod => mod.enabled !== false)
-    .flatMap(mod => mod.mapFolders || [])
-    .filter(Boolean)
-    .filter(folder => !(config.disabledMapFolders || []).includes(folder))
-    .filter(folder => folder !== "Muldraugh, KY"))];
-  rebuiltMaps.push("Muldraugh, KY");
-  if (JSON.stringify(config.mapFolders || []) !== JSON.stringify(rebuiltMaps)) {
-    config.mapFolders = rebuiltMaps;
+  const rebuiltMaps = config.mapFolders || [];
+  if (beforeMapFolders !== JSON.stringify(rebuiltMaps)) {
     actions.push({
       level: "fixed",
       title: "Rebuilt Map line from installed Workshop folders",
