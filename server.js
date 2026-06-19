@@ -2039,7 +2039,24 @@ function parseWorkshopItems(html) {
       url: `https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`
     });
   }
-  return items;
+
+  if (!items.length) {
+    for (const match of html.matchAll(/<a\s+href="https:\/\/steamcommunity\.com\/sharedfiles\/filedetails\/\?id=(\d+)"[^>]*>\s*<img\s+src="([^"]+)"\s+alt="([^"]*)"/gi)) {
+      const id = match[1];
+      const thumb = decodeJsString(match[2] || "");
+      const title = decodeHtml(match[3] || `Workshop ${id}`);
+      items.push({
+        workshopId: id,
+        title,
+        author: "",
+        thumb,
+        rating: { label: "Unknown rating", stars: 0 },
+        url: `https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`
+      });
+    }
+  }
+
+  return uniqueBy(items, item => item.workshopId);
 }
 
 function decodeHtml(value) {
@@ -2670,13 +2687,27 @@ async function handleApi(req, res, pathname) {
   if (req.method === "POST" && pathname === "/api/workshop/search") {
     const body = await readBody(req);
     const days = Number(body.days || 90);
+    const directWorkshopId = (String(body.query || "").match(/(?:id=|^|\D)(\d{6,})(?:\D|$)/) || [])[1] || "";
+    if (directWorkshopId) {
+      const detail = await workshopDetails(directWorkshopId, { allowIncompleteCache: true });
+      const item = {
+        workshopId: detail.workshopId,
+        title: detail.title || `Workshop ${directWorkshopId}`,
+        author: detail.author || "",
+        thumb: detail.media?.find(media => media.thumb)?.thumb || detail.media?.[0]?.url || "",
+        rating: detail.rating || { label: "Unknown rating", stars: 0 },
+        url: detail.url || `https://steamcommunity.com/sharedfiles/filedetails/?id=${directWorkshopId}`
+      };
+      return json(res, 200, markCacheSource({ url: item.url, items: [item] }, detail.cache?.source || "direct", { fetchedAt: Date.now(), stale: false }));
+    }
     const tags = (body.tags || ["Build 42"]).map(tag => `requiredtags%5B%5D=${encodeURIComponent(tag).replace(/%20/g, "+")}`).join("&");
     const sort = body.sort || "toprated";
     const query = body.query ? `&searchtext=${encodeURIComponent(body.query)}` : "";
     const url = `https://steamcommunity.com/workshop/browse/?appid=108600&${tags}${query}&browsesort=${sort}&section=readytouseitems&actualsort=${sort}&p=1&days=${days}`;
     const cacheKey = JSON.stringify({ tags: body.tags || ["Build 42"], sort, days, query: body.query || "" });
     const cached = readCache("workshop_searches", "cache_key", cacheKey);
-    if (cached && !cached.stale && !body.forceRefresh) {
+    const emptyTypedCache = body.query && !(cached?.value?.items || []).length;
+    if (cached && !cached.stale && !body.forceRefresh && !emptyTypedCache) {
       return json(res, 200, markCacheSource(cached.value, "cache", cached));
     }
     try {
