@@ -228,7 +228,7 @@ code {
 
 .profile-create {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
 }
 
@@ -687,8 +687,24 @@ code {
   margin-bottom: 14px;
 }
 
-.workshop-add > div:first-child {
+.workshop-add > div:first-child,
+.import-box > div:first-child {
   margin-bottom: 10px;
+}
+
+.import-box {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #33413c;
+  background: #101514;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.import-box textarea {
+  min-height: 130px;
+  font-size: 12px;
 }
 
 .recommend-grid {
@@ -941,6 +957,7 @@ pre {
   }
 
   .sidebar,
+  .profile-create,
   .editor-grid,
   .workshop-search,
   .test-summary {

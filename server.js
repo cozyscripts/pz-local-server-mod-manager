@@ -11,6 +11,7 @@ const LOCAL_DATA_DIR = process.env.PZ_MANAGER_LOCAL_DIR || path.join(process.env
 const DEFAULT_CONFIG_PATH = path.join(ROOT, "config", "default-config.json");
 const LEGACY_CONFIG_PATH = path.join(ROOT, "config", "server-config.json");
 const CONFIG_PATH = path.join(APP_DATA_DIR, "server-config.json");
+const PROFILE_STATE_DIR = path.join(APP_DATA_DIR, "profiles");
 const RECOMMENDED_PATH = path.join(ROOT, "data", "recommended-mods.json");
 const CHANGE_LOG_PATH = path.join(APP_DATA_DIR, "change-log.jsonl");
 const WORKSHOP_CACHE_PATH = path.join(APP_DATA_DIR, "workshop-cache.sqlite");
@@ -304,8 +305,32 @@ function saveConfig(config, reason = "Saved configuration", options = {}) {
   const next = ensureConfigShape(config);
   next.revision = currentRevision + 1;
   writeJson(CONFIG_PATH, next);
+  saveProfileState(next);
   addChange(reason, { server: next.serverName, mods: String(next.mods.length) });
   return next;
+}
+
+function profileStatePath(profileName) {
+  const cleanName = String(profileName || "").trim().replace(/[\\/:*?"<>|]/g, "");
+  return cleanName ? path.join(PROFILE_STATE_DIR, `${cleanName}.json`) : "";
+}
+
+function saveProfileState(config) {
+  const file = profileStatePath(config.serverName);
+  if (!file) return;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  writeJson(file, {
+    serverName: config.serverName,
+    publicName: config.publicName,
+    disabledMapFolders: config.disabledMapFolders || [],
+    unresolvedRequirements: config.unresolvedRequirements || [],
+    mods: config.mods || []
+  });
+}
+
+function readProfileState(profileName) {
+  const file = profileStatePath(profileName);
+  return file ? readJson(file, null) : null;
 }
 
 function configWithoutPreviewNoise(config) {
@@ -965,8 +990,9 @@ function loadProfileIntoConfig(profileName) {
   const iniPath = path.join(config.pzServerDir || defaultPzServerDir(), `${profileName}.ini`);
   if (!fs.existsSync(iniPath)) throw new Error(`Profile not found: ${profileName}`);
   const values = parseIni(fs.readFileSync(iniPath, "utf8"));
+  const profileState = readProfileState(profileName) || {};
   config.serverName = profileName;
-  config.publicName = values.PublicName || profileName;
+  config.publicName = values.PublicName || profileState.publicName || profileName;
   config.maxPlayers = Number(values.MaxPlayers || config.maxPlayers || 8);
   config.serverPassword = values.Password || "";
   config.defaultPort = Number(values.DefaultPort || config.defaultPort || 16261);
@@ -974,21 +1000,27 @@ function loadProfileIntoConfig(profileName) {
   config.steamPort1 = Number(values.SteamPort1 || config.steamPort1 || 8766);
   config.steamPort2 = Number(values.SteamPort2 || config.steamPort2 || 8767);
   const workshopIds = splitSemi(values.WorkshopItems);
-  const modIds = splitSemi(values.Mods);
   const mapFolders = splitSemi(values.Map).filter(map => map !== "Muldraugh, KY");
-  const previousMods = config.mods || [];
+  const previousMods = profileState.mods || config.mods || [];
+  config.disabledMapFolders = profileState.disabledMapFolders || config.disabledMapFolders || [];
+  config.unresolvedRequirements = profileState.unresolvedRequirements || [];
   config.mapFolders = [...new Set([...mapFolders, "Muldraugh, KY"])];
   config.mods = workshopIds.map((workshopId, index) => {
     const existing = previousMods.find(mod => mod.workshopId === workshopId);
+    const inspected = inspectWorkshopItem(config, workshopId);
+    const inspectedModIds = [...new Set(inspected.modInfos.map(info => info.id).filter(Boolean))];
+    const inspectedMapFolders = [...new Set(inspected.modInfos.flatMap(info => info.mapFolders || []).filter(Boolean))];
+    const inspectedRequiredMods = [...new Set(inspected.modInfos.flatMap(info => info.requiredMods || []).map(normalizeModRequirement).filter(Boolean))];
+    const inspectedConfigFiles = [...new Map(inspected.modInfos.flatMap(info => info.configFiles || []).map(file => [file.path, file])).values()];
     return {
       enabled: true,
       workshopId,
-      title: existing?.title || `Workshop ${workshopId}`,
-      modIds: existing?.modIds?.length ? existing.modIds : (modIds[index] ? [modIds[index]] : []),
-      mapFolders: existing?.mapFolders || [],
+      title: existing?.title || inspected.modInfos.map(info => info.name).filter(Boolean).join(" / ") || `Workshop ${workshopId}`,
+      modIds: inspectedModIds.length ? inspectedModIds : (existing?.modIds || []),
+      mapFolders: inspectedMapFolders.length ? inspectedMapFolders : (existing?.mapFolders || []),
       loadOrder: index + 1,
-      requiredMods: existing?.requiredMods || [],
-      configFiles: existing?.configFiles || [],
+      requiredMods: inspectedRequiredMods.length ? inspectedRequiredMods : (existing?.requiredMods || []),
+      configFiles: inspectedConfigFiles.length ? inspectedConfigFiles : (existing?.configFiles || []),
       workshopPreview: existing?.workshopPreview || null,
       workshopOnly: existing?.workshopOnly || false,
       skipWorkshopItem: existing?.skipWorkshopItem || false,
@@ -1001,18 +1033,34 @@ function loadProfileIntoConfig(profileName) {
   return config;
 }
 
-function createHostProfile(profileName) {
+function freshProfileConfig(profileName, current = loadConfig()) {
+  const cleanName = String(profileName || "").trim().replace(/[\\/:*?"<>|]/g, "");
+  const fresh = defaultConfig();
+  for (const key of ["steamDir", "pzGameDir", "pzServerDir", "steamCmdDir", "serverDir", "betaBranch"]) {
+    fresh[key] = current[key] || fresh[key];
+  }
+  fresh.serverName = cleanName;
+  fresh.publicName = cleanName;
+  fresh.serverPassword = "";
+  fresh.mapFolders = ["Muldraugh, KY"];
+  fresh.disabledMapFolders = [];
+  fresh.mods = [];
+  fresh.unresolvedRequirements = [];
+  return ensureConfigShape(fresh);
+}
+
+function createHostProfile(profileName, options = {}) {
   const cleanName = String(profileName || "").trim().replace(/[\\/:*?"<>|]/g, "");
   if (!cleanName) throw new Error("Enter a valid profile name.");
-  const config = loadConfig();
+  const config = options.fresh ? freshProfileConfig(cleanName) : loadConfig();
   config.serverName = cleanName;
-  config.publicName = config.publicName || cleanName;
+  config.publicName = options.fresh ? cleanName : (config.publicName || cleanName);
   fs.mkdirSync(config.pzServerDir || defaultPzServerDir(), { recursive: true });
   const iniPath = applyConfigToIni(config);
   for (const file of [sandboxPath(config), spawnRegionsPath(config), spawnPointsPath(config)]) {
     if (!fs.existsSync(file)) fs.writeFileSync(file, file.endsWith("_spawnregions.lua") ? "function SpawnRegions()\n  return {}\nend\n" : "", "utf8");
   }
-  saveConfig(config, "Created local Host profile");
+  saveConfig(config, options.fresh ? "Created fresh local Host profile" : "Created local Host profile");
   return { config, iniPath };
 }
 
@@ -1033,6 +1081,39 @@ function splitRequirementList(value) {
     .split(/[;,]/)
     .map(normalizeModRequirement)
     .filter(item => item && item !== "require"))];
+}
+
+function extractWorkshopIds(value) {
+  return [...new Set([...String(value || "").matchAll(/(?:id=|workshop[\s_-]*id[:=]?|WorkshopItems=|^|[^\d])(\d{6,})(?=$|[^\d])/gi)]
+    .map(match => String(match[1]).trim())
+    .filter(Boolean))];
+}
+
+function parseImportedModListText(text) {
+  const raw = String(text || "");
+  const ini = parseIni(raw);
+  const workshopIds = extractWorkshopIds(raw);
+  const modIds = [];
+
+  if (ini.Mods) modIds.push(...splitSemi(ini.Mods));
+  if (ini.WorkshopItems) workshopIds.push(...extractWorkshopIds(ini.WorkshopItems));
+
+  const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (/^(VERSION|WorkshopItems|Mods|Map|Server|PublicName|Password)\s*=/i.test(line)) continue;
+    if (/^\d{6,}([,;\s]+\d{6,})*$/.test(line)) {
+      workshopIds.push(...extractWorkshopIds(line));
+      continue;
+    }
+    if (line.includes(";") && !line.includes("=")) {
+      modIds.push(...splitSemi(line));
+    }
+  }
+
+  return {
+    workshopIds: [...new Set(workshopIds)],
+    modIds: [...new Set(modIds.map(normalizeModRequirement).filter(Boolean))]
+  };
 }
 
 function extractModIdsFromWorkshopText(plain) {
@@ -2436,6 +2517,65 @@ async function addWorkshopWithDependencies(config, workshopId) {
   };
 }
 
+async function addWorkshopIdsToConfig(config, workshopIds) {
+  const ids = [...new Set((workshopIds || []).map(id => String(id || "").trim()).filter(Boolean))];
+  const resolved = [];
+  const failed = [];
+  let added = 0;
+  for (const id of ids) {
+    try {
+      const result = await addWorkshopWithDependencies(config, id);
+      added += result.added || 0;
+      resolved.push(...(result.resolved || []));
+      failed.push(...(result.failed || []));
+    } catch (error) {
+      failed.push({ workshopId: id, error: error.message });
+    }
+  }
+  config.mods = (config.mods || []).map((mod, index) => ({ ...mod, loadOrder: index + 1 }));
+  return { requested: ids, added, resolved, failed };
+}
+
+async function importModListIntoConfig(config, text) {
+  const parsed = parseImportedModListText(text);
+  if (!parsed.workshopIds.length && !parsed.modIds.length) {
+    throw new Error("No Workshop IDs or internal Mod IDs were found in that import text.");
+  }
+  const workshopResult = await addWorkshopIdsToConfig(config, parsed.workshopIds);
+  const found = scanDownloadedMods(config);
+  const byModId = new Map();
+  for (const item of found) {
+    if (item.modId && !byModId.has(item.modId)) byModId.set(item.modId, item);
+  }
+
+  const missingModIds = [];
+  const scannedMatches = [];
+  for (const modId of parsed.modIds) {
+    if (activeInternalModIds(config).has(modId)) continue;
+    const item = byModId.get(modId);
+    if (!item) {
+      missingModIds.push(modId);
+      continue;
+    }
+    scannedMatches.push(item);
+  }
+  const scannedAdded = scannedMatches.length ? mergeScannedMods(config, scannedMatches) : 0;
+  const actions = [];
+  for (const mod of config.mods || []) refreshModFromDownloadedFiles(config, mod, actions, { silentBlocked: true });
+  troubleshootConfig(config);
+  rebuildDerivedProfileState(config);
+  config.mods = (config.mods || []).map((mod, index) => ({ ...mod, loadOrder: index + 1 }));
+
+  return {
+    parsed,
+    added: (workshopResult.added || 0) + scannedAdded,
+    workshop: workshopResult,
+    matchedModIds: scannedMatches.map(item => ({ modId: item.modId, workshopId: item.workshopId, title: item.title })),
+    missingModIds,
+    actions
+  };
+}
+
 async function handleApi(req, res, pathname) {
   if (req.method === "GET" && pathname === "/api/config") return json(res, 200, loadConfig());
   if (req.method === "GET" && pathname === "/api/setup") {
@@ -2509,7 +2649,7 @@ async function handleApi(req, res, pathname) {
 
   if (req.method === "POST" && pathname === "/api/profile/create") {
     const body = await readBody(req);
-    const result = createHostProfile(body.name);
+    const result = createHostProfile(body.name, { fresh: Boolean(body.fresh) });
     return json(res, 200, result);
   }
 
@@ -2663,17 +2803,37 @@ async function handleApi(req, res, pathname) {
   if (req.method === "POST" && pathname === "/api/mods/add-workshop") {
     const body = await readBody(req);
     const workshopId = String(body.workshopId || "").trim();
-    if (!/^\d+$/.test(workshopId)) return json(res, 400, { error: "Paste a valid Steam Workshop ID." });
+    const workshopIds = extractWorkshopIds(workshopId);
+    if (!workshopIds.length) return json(res, 400, { error: "Paste a valid Steam Workshop ID, URL, or comma-separated list." });
     const config = loadConfig();
-    const result = await addWorkshopWithDependencies(config, workshopId);
+    const result = workshopIds.length === 1
+      ? await addWorkshopWithDependencies(config, workshopIds[0])
+      : await addWorkshopIdsToConfig(config, workshopIds);
     troubleshootConfig(config);
     const next = saveConfig(config, "Added Workshop mod and dependencies");
     const iniPath = applyConfigToIni(next);
     const workshopSync = await prepareWorkshopLaunchFolders(next);
     addChange("Updated local Host profile for Workshop mod", {
       server: next.serverName,
-      workshopId,
+      workshopId: workshopIds.join(";"),
       added: String(result.added),
+      file: iniPath
+    });
+    return json(res, 200, { ...result, config: next, iniPath, workshopSync });
+  }
+
+  if (req.method === "POST" && pathname === "/api/mods/import-list") {
+    const body = await readBody(req);
+    const config = loadConfig();
+    const result = await importModListIntoConfig(config, body.text || "");
+    const next = saveConfig(config, "Imported mod list into Host profile");
+    const iniPath = applyConfigToIni(next);
+    const workshopSync = await prepareWorkshopLaunchFolders(next);
+    addChange("Converted imported mod list for server", {
+      server: next.serverName,
+      workshopIds: String(result.parsed.workshopIds.length),
+      modIds: String(result.parsed.modIds.length),
+      missing: String(result.missingModIds.length),
       file: iniPath
     });
     return json(res, 200, { ...result, config: next, iniPath, workshopSync });

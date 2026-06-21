@@ -30,6 +30,7 @@
         <div class="profile-create">
           <input id="newProfileName" placeholder="New profile name">
           <button id="createProfile">Create</button>
+          <button id="createFreshProfile">Fresh</button>
         </div>
       </section>
 
@@ -93,11 +94,21 @@
         <div class="workshop-add">
           <div>
             <h2>Add Workshop Item</h2>
-            <p>Paste a Steam Workshop ID. The manager will pull the mod details and dependencies in the background.</p>
+            <p>Paste a Steam Workshop ID, URL, or comma-separated list. The manager will pull details and dependencies.</p>
           </div>
           <div class="workshop-add-row">
-            <input id="workshopIdInput" placeholder="Steam Workshop ID">
+            <input id="workshopIdInput" placeholder="Workshop ID, URL, or comma-separated IDs">
             <button id="addWorkshopId" class="primary">Add</button>
+          </div>
+        </div>
+        <div class="import-box">
+          <div>
+            <h2>Import Mod List</h2>
+            <p>Paste a single-player mod list, <code>Mods=</code>, <code>WorkshopItems=</code>, or saved Mod Manager text. Downloaded internal Mod IDs are matched to Workshop items automatically.</p>
+          </div>
+          <textarea id="modListImportText" placeholder="VERSION=1&#10;ModA;ModB;ModC&#10;&#10;or&#10;WorkshopItems=3403180543;3707475814&#10;Mods=BanditsWeekOne;TheArk" spellcheck="false"></textarea>
+          <div class="row-actions">
+            <button id="importModList" class="primary">Import To Server</button>
           </div>
         </div>
         <div class="panel-head">

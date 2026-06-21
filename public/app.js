@@ -272,9 +272,17 @@ async function loadSelectedProfile() {
 }
 
 async function createProfile() {
+  return createProfileWithMode(false);
+}
+
+async function createFreshProfile() {
+  return createProfileWithMode(true);
+}
+
+async function createProfileWithMode(fresh) {
   const input = $("newProfileName");
   const name = input.value.trim() || config.serverName || "FriendsB42";
-  const data = await api("/api/profile/create", { method: "POST", body: { name } });
+  const data = await api("/api/profile/create", { method: "POST", body: { name, fresh } });
   config = data.config;
   input.value = "";
   fillForm();
@@ -283,7 +291,7 @@ async function createProfile() {
   await loadFiles();
   await loadServerPlayers().catch(() => {});
   await refreshChanges();
-  showToast("Profile created!");
+  showToast(fresh ? "Fresh profile created!" : "Profile created!");
 }
 
 async function loadSetup() {
@@ -426,11 +434,39 @@ async function addWorkshopMod(workshopId, button) {
     await loadFiles();
     await refreshChanges();
     if ($("workshopIdInput")?.value.trim() === workshopId) $("workshopIdInput").value = "";
-    showToast("Added!");
+    showToast(data.added > 1 ? `Added ${data.added} items!` : "Added!");
   } finally {
     if (button) {
       button.disabled = false;
       button.textContent = originalText || "Add";
+    }
+  }
+}
+
+async function importModList(button) {
+  const text = $("modListImportText")?.value.trim() || "";
+  if (!text) throw new Error("Paste a mod list first.");
+  const originalText = button?.textContent || "Import To Server";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Importing...";
+  }
+  try {
+    await saveConfig("quiet");
+    const data = await api("/api/mods/import-list", { method: "POST", body: { text } });
+    config = data.config;
+    fillForm();
+    renderAll();
+    if (recommendedItems.length) showRecommended(recommendedItems, recommendedSource);
+    await loadFiles();
+    await refreshChanges();
+    const missing = data.missingModIds?.length || 0;
+    const added = data.added || 0;
+    showToast(missing ? `Imported ${added}, ${missing} missing` : `Imported ${added} item(s)!`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
     }
   }
 }
@@ -897,6 +933,7 @@ async function init() {
   if ($("saveConfig")) $("saveConfig").addEventListener("click", () => saveConfig().catch(alertError));
   $("loadProfile").addEventListener("click", () => loadSelectedProfile().catch(alertError));
   $("createProfile").addEventListener("click", () => createProfile().catch(alertError));
+  $("createFreshProfile").addEventListener("click", () => createFreshProfile().catch(alertError));
   $("newProfileName").addEventListener("keydown", event => {
     if (event.key === "Enter") createProfile().catch(alertError);
   });
@@ -936,6 +973,7 @@ async function init() {
   $("workshopIdInput").addEventListener("keydown", event => {
     if (event.key === "Enter") addWorkshopMod($("workshopIdInput").value.trim(), $("addWorkshopId")).catch(alertError);
   });
+  $("importModList").addEventListener("click", event => importModList(event.currentTarget).catch(alertError));
   $("refreshRecommended").addEventListener("click", () => refreshRecommended().catch(alertError));
   $("searchWorkshop").addEventListener("click", () => refreshRecommended().catch(alertError));
   $("workshopSearch").addEventListener("keydown", event => {
