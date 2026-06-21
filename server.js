@@ -1225,6 +1225,16 @@ function enabledWorkshopIds(config) {
     .filter(Boolean))];
 }
 
+function profileWorkshopIds(config) {
+  const ids = new Set(enabledWorkshopIds(config));
+  const iniPath = serverIniPath(config);
+  if (fs.existsSync(iniPath)) {
+    const values = parseIni(fs.readFileSync(iniPath, "utf8"));
+    for (const id of splitSemi(getIniValue(values, "WorkshopItems"))) ids.add(id);
+  }
+  return [...ids].filter(Boolean);
+}
+
 function enabledWorkshopItems(config) {
   const seen = new Set();
   return sortedEnabledMods(config)
@@ -2831,17 +2841,46 @@ async function handleApi(req, res, pathname) {
     const config = loadConfig();
     const body = await readBody(req);
     const found = scanDownloadedMods(config);
-    const activeWorkshopIds = new Set((config.mods || []).map(mod => String(mod.workshopId || "")).filter(Boolean));
-    const mergeTargets = body.includeAllDownloaded ? found : found.filter(item => activeWorkshopIds.has(String(item.workshopId)));
+    const targetWorkshopIds = body.includeAllDownloaded
+      ? [...new Set(found.map(item => String(item.workshopId || "")).filter(Boolean))]
+      : profileWorkshopIds(config);
+    const targetWorkshopIdSet = new Set(targetWorkshopIds);
+    const mergeTargets = found.filter(item => targetWorkshopIdSet.has(String(item.workshopId)));
     const added = mergeScannedMods(config, mergeTargets);
     const troubleshooting = troubleshootConfig(config);
-    saveConfig(config, body.includeAllDownloaded ? "Scanned all downloaded Workshop mods" : "Refreshed active Workshop mods");
-    applyConfigToIni(config);
-    const workshopSync = await prepareWorkshopLaunchFolders(config);
+    const next = saveConfig(config, body.includeAllDownloaded ? "Scanned all downloaded Workshop mods" : "Scanned selected Host profile mods");
+    const iniPath = applyConfigToIni(next);
+    const workshopSync = await prepareWorkshopLaunchFolders(next);
+    const scannedWorkshopIds = [...new Set(found.map(item => item.workshopId).filter(Boolean))];
+    const mergedWorkshopIds = [...new Set(mergeTargets.map(item => item.workshopId).filter(Boolean))];
+    addChange("Scanned downloaded Workshop mods", {
+      server: next.serverName,
+      found: String(found.length),
+      workshopItems: String(scannedWorkshopIds.length),
+      profileWorkshopItems: String(targetWorkshopIds.length),
+      merged: String(mergeTargets.length),
+      added: String(added),
+      file: iniPath
+    });
     if (troubleshooting.actions.length) {
-      addChange("Resolved mod load issues", { server: config.serverName, fixed: String(troubleshooting.actions.filter(action => action.level === "fixed").length) });
+      addChange("Resolved mod load issues", { server: next.serverName, fixed: String(troubleshooting.actions.filter(action => action.level === "fixed").length) });
     }
-    return json(res, 200, { found, added, troubleshooting, workshopSync, config });
+    return json(res, 200, {
+      found,
+      added,
+      troubleshooting,
+      workshopSync,
+      config: next,
+      summary: {
+        scannedMods: found.length,
+        scannedWorkshopItems: scannedWorkshopIds.length,
+        profileWorkshopItems: targetWorkshopIds.length,
+        mergedMods: mergeTargets.length,
+        mergedWorkshopItems: mergedWorkshopIds.length,
+        addedWorkshopItems: added,
+        mode: body.includeAllDownloaded ? "all-downloaded" : "selected-profile"
+      }
+    });
   }
 
   if (req.method === "POST" && pathname === "/api/troubleshoot/fix") {

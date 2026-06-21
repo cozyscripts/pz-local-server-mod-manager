@@ -532,6 +532,34 @@ async function importModList(button) {
   }
 }
 
+async function scanDownloadedMods(button) {
+  const originalText = button?.textContent || "Scan Downloaded Mods";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Scanning...";
+  }
+  try {
+    const data = await api("/api/mods/scan", { method: "POST", body: { includeAllDownloaded: false } });
+    config = data.config;
+    fillForm();
+    renderAll();
+    switchTab("mods");
+    await loadFiles();
+    await refreshChanges();
+    const fixedCount = data.troubleshooting?.actions?.filter(action => action.level === "fixed").length || 0;
+    const summary = data.summary || {};
+    const scanned = summary.profileWorkshopItems || summary.scannedWorkshopItems || 0;
+    const merged = summary.mergedWorkshopItems || 0;
+    const added = summary.addedWorkshopItems || 0;
+    showToast(`Scanned ${scanned}, added ${added}, merged ${merged}${fixedCount ? `, fixed ${fixedCount}` : ""}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
 async function loadRecommended() {
   const data = await api("/api/recommended");
   showRecommended([...(data.items || []), ...(data.maps || [])], data.source);
@@ -1012,17 +1040,7 @@ async function init() {
   $("runServerTest").addEventListener("click", event => testModsOnServer(event.currentTarget).catch(alertError));
   $("startServer").addEventListener("click", () => saveConfig("quiet").then(() => api("/api/server/start", { method: "POST" })).catch(alertError));
   $("stopServer").addEventListener("click", () => api("/api/server/stop", { method: "POST" }).catch(alertError));
-  $("scanMods").addEventListener("click", () => api("/api/mods/scan", { method: "POST" }).then(data => {
-    config = data.config;
-    fillForm();
-    renderAll();
-    const fixedCount = data.troubleshooting?.actions?.filter(action => action.level === "fixed").length || 0;
-    if (fixedCount) showToast(`Fixed ${fixedCount} issue(s)`);
-    return api("/api/apply", { method: "POST" });
-  }).then(() => {
-    loadFiles();
-    refreshChanges();
-  }).catch(alertError));
+  $("scanMods").addEventListener("click", event => scanDownloadedMods(event.currentTarget).catch(alertError));
   $("addBlankMod").addEventListener("click", addBlankMod);
   $("addMapFolder").addEventListener("click", () => {
     const name = prompt("Map folder name");
