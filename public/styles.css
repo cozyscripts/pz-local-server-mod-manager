@@ -180,6 +180,33 @@ code {
   background: #b45c5c;
 }
 
+.operation-status {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #3a5149;
+  border-radius: 8px;
+  background: #111917;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.operation-status strong {
+  color: var(--text);
+}
+
+.operation-status.error {
+  border-color: #8b4545;
+  background: #271818;
+  color: #ffc4c4;
+}
+
+.operation-status.success {
+  border-color: #567e49;
+  background: #182719;
+  color: #dff5d2;
+}
+
 .shell {
   display: grid;
   grid-template-columns: 300px 1fr;

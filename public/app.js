@@ -32,6 +32,53 @@ function unique(items) {
   return [...new Set(items.filter(Boolean))];
 }
 
+function extractWorkshopIdsFromInput(value) {
+  return unique([...String(value || "").matchAll(/(?:id=|workshop[\s_-]*id[:=]?|WorkshopItems=|^|[^\d])(\d{6,})(?=$|[^\d])/gi)]
+    .map(match => match[1]));
+}
+
+function setOperationStatus(id, message, type = "") {
+  const node = $(id);
+  if (!node) return;
+  node.className = `operation-status ${type}`.trim();
+  node.innerHTML = message;
+  node.hidden = false;
+}
+
+function clearOperationStatus(id) {
+  const node = $(id);
+  if (!node) return;
+  node.hidden = true;
+  node.textContent = "";
+  node.className = "operation-status";
+}
+
+function startWorkshopAddStatus(ids) {
+  const count = ids.length || 1;
+  const startedAt = Date.now();
+  const phases = [
+    "Reading Steam Workshop pages and dependency notes",
+    "Resolving internal Mod IDs and map folders",
+    "Using cached data or SteamCMD fallback where needed",
+    "Syncing Workshop files into the Host launch folders"
+  ];
+  const tick = () => {
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    const phase = phases[Math.min(Math.floor(elapsed / 35), phases.length - 1)];
+    setOperationStatus(
+      "workshopAddStatus",
+      `<strong>Adding ${count} Workshop item${count === 1 ? "" : "s"}...</strong> ${phase}. ${elapsed}s elapsed. Large mods can take a couple minutes.`,
+      ""
+    );
+  };
+  tick();
+  const timer = setInterval(() => {
+    tick();
+    refreshChanges().catch(() => {});
+  }, 5000);
+  return () => clearInterval(timer);
+}
+
 function fillForm() {
   if ($("currentProfileName")) $("currentProfileName").textContent = config.serverName || "No profile";
   for (const id of ["serverName", "publicName", "serverPassword", "maxPlayers", "defaultPort", "udpPort", "memoryMb", "steamDir", "pzGameDir", "pzServerDir", "steamCmdDir", "serverDir"]) {
@@ -419,9 +466,11 @@ async function addWorkshopMod(workshopId, button) {
   if (!workshopId) return;
   const activeTabName = document.querySelector(".tab.active")?.dataset.tab || "workshop";
   const originalText = button?.textContent;
+  const ids = extractWorkshopIdsFromInput(workshopId);
+  const stopStatus = startWorkshopAddStatus(ids);
   if (button) {
     button.disabled = true;
-    button.textContent = "Adding...";
+    button.textContent = ids.length > 1 ? `Adding ${ids.length}...` : "Adding...";
   }
   try {
     await saveConfig("quiet");
@@ -434,8 +483,20 @@ async function addWorkshopMod(workshopId, button) {
     await loadFiles();
     await refreshChanges();
     if ($("workshopIdInput")?.value.trim() === workshopId) $("workshopIdInput").value = "";
-    showToast(data.added > 1 ? `Added ${data.added} items!` : "Added!");
+    const failed = data.failed?.length || 0;
+    const added = data.added || 0;
+    const resolved = data.resolved?.length || 0;
+    setOperationStatus(
+      "workshopAddStatus",
+      `<strong>Done.</strong> Added ${added}, resolved ${resolved}, failed ${failed}. The Host profile was updated.`,
+      failed ? "error" : "success"
+    );
+    showToast(failed ? `Added ${added}, ${failed} failed` : (added > 1 ? `Added ${added} items!` : "Added!"), failed ? "error" : "success");
+  } catch (error) {
+    setOperationStatus("workshopAddStatus", `<strong>Add failed.</strong> ${escapeHtml(error.message || String(error))}`, "error");
+    throw error;
   } finally {
+    stopStatus();
     if (button) {
       button.disabled = false;
       button.textContent = originalText || "Add";

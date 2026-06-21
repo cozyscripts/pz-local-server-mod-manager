@@ -2806,6 +2806,11 @@ async function handleApi(req, res, pathname) {
     const workshopIds = extractWorkshopIds(workshopId);
     if (!workshopIds.length) return json(res, 400, { error: "Paste a valid Steam Workshop ID, URL, or comma-separated list." });
     const config = loadConfig();
+    addChange("Started Workshop add", {
+      server: config.serverName,
+      workshopId: workshopIds.join(";"),
+      count: String(workshopIds.length)
+    });
     const result = workshopIds.length === 1
       ? await addWorkshopWithDependencies(config, workshopIds[0])
       : await addWorkshopIdsToConfig(config, workshopIds);
