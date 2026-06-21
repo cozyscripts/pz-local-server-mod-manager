@@ -1163,16 +1163,59 @@ function saveProfileFiles(config, files) {
 }
 
 function findStartBat(serverDir) {
-  const candidates = ["StartServer64.bat", "start-server.bat", "StartServer64_nosteam.bat"].map(file => path.join(serverDir, file));
-  return candidates.find(fs.existsSync);
+  if (!serverDir || !fs.existsSync(serverDir)) return null;
+  const preferred = [
+    "StartServer64.bat",
+    "StartServer32.bat",
+    "StartServer64_nosteam.bat",
+    "start-server.bat",
+    "ProjectZomboidServer.bat",
+    "ProjectZomboid64.bat"
+  ].map(file => path.join(serverDir, file));
+  const direct = preferred.find(fs.existsSync);
+  if (direct) return direct;
+
+  const found = [];
+  function walk(dir, depth = 0) {
+    if (depth > 3 || !fs.existsSync(dir)) return;
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) {
+        const normalized = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+        const allowedDir = ["steamapps", "common", "projectzomboiddedicatedserver", "pz-dedicated", "pzdedicated", "server"].includes(normalized)
+          || normalized.includes("zomboid")
+          || normalized.includes("dedicated");
+        if (!allowedDir && depth > 1) continue;
+        walk(full, depth + 1);
+      } else if (/(\bStartServer|server|zomboid).*\.bat$/i.test(name)) {
+        found.push(full);
+      }
+    }
+  }
+  walk(serverDir);
+  return found.sort((a, b) => {
+    const score = file => (/StartServer64/i.test(file) ? 0 : /start-server/i.test(file) ? 1 : /server/i.test(file) ? 2 : 3);
+    return score(a) - score(b) || a.length - b.length;
+  })[0] || null;
 }
 
-function javaServerCommand(config) {
-  const javaExe = path.join(config.serverDir, "jre64", "bin", "java.exe");
-  if (!fs.existsSync(javaExe)) return null;
+function javaServerCommand(config, serverDir = config.serverDir) {
+  const javaExe = [
+    path.join(serverDir, "jre64", "bin", "java.exe"),
+    path.join(serverDir, "jre", "bin", "java.exe")
+  ].find(fs.existsSync);
+  if (!javaExe) return null;
+  const classpath = fs.existsSync(path.join(serverDir, "java", "projectzomboid.jar"))
+    ? "java/;java/projectzomboid.jar"
+    : fs.existsSync(path.join(serverDir, "ProjectZomboid64.json"))
+      ? "java/;java/projectzomboid.jar"
+      : "";
+  if (!classpath) return null;
   const memory = `${Number(config.memoryMb || 8192)}m`;
   return {
     exe: javaExe,
+    cwd: serverDir,
     args: [
       "-Djava.awt.headless=true",
       "-Dzomboid.steam=1",
@@ -1184,7 +1227,7 @@ function javaServerCommand(config) {
       `-Xmx${memory}`,
       "-Djava.library.path=natives/;natives/win64/;.",
       "-cp",
-      "java/;java/projectzomboid.jar",
+      classpath,
       "zombie.network.GameServer",
       "-servername",
       config.serverName,
@@ -1194,19 +1237,52 @@ function javaServerCommand(config) {
   };
 }
 
-function startDedicatedServer(config, options = {}) {
+function describeServerLauncherSearch(serverDir) {
+  if (!serverDir || !fs.existsSync(serverDir)) return `Folder does not exist: ${serverDir}`;
+  const entries = fs.readdirSync(serverDir).slice(0, 40).join(", ") || "(empty)";
+  const bats = [];
+  const jars = [];
+  function walk(dir, depth = 0) {
+    if (depth > 3 || !fs.existsSync(dir)) return;
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) walk(full, depth + 1);
+      else if (/\.bat$/i.test(name)) bats.push(path.relative(serverDir, full));
+      else if (/projectzomboid\.jar$/i.test(name) || /java\.exe$/i.test(name)) jars.push(path.relative(serverDir, full));
+    }
+  }
+  walk(serverDir);
+  return `Top-level files: ${entries}. Batch files found: ${bats.slice(0, 12).join(", ") || "none"}. Java/server files found: ${jars.slice(0, 12).join(", ") || "none"}.`;
+}
+
+function resolveServerLauncher(config) {
   const bat = findStartBat(config.serverDir);
+  if (bat) {
+    return {
+      exe: "cmd.exe",
+      args: ["/c", bat, "-servername", config.serverName],
+      cwd: path.dirname(bat),
+      label: bat
+    };
+  }
   const javaCommand = javaServerCommand(config);
-  if (!bat && !javaCommand) throw new Error(`Could not find server launcher files in ${config.serverDir}`);
+  if (javaCommand) return { ...javaCommand, label: javaCommand.exe };
+  return null;
+}
+
+function startDedicatedServer(config, options = {}) {
+  const launcher = resolveServerLauncher(config);
+  if (!launcher) throw new Error(`Could not find server launcher files in ${config.serverDir}. ${describeServerLauncherSearch(config.serverDir)}`);
   applyConfigToIni(config);
   stopOrphanDedicatedServers(config);
   const coop = findPzServerProcesses(config).find(proc => proc.coop);
   if (coop) throw new Error(`Project Zomboid Host Game is already launching this profile (PID ${coop.pid}). Close/finish Host before running the dedicated test server.`);
   if (gameProcess) throw new Error("Server is already running.");
-  const exe = javaCommand ? javaCommand.exe : "cmd.exe";
-  const args = javaCommand ? javaCommand.args : ["/c", bat, "-servername", config.serverName];
+  const exe = launcher.exe;
+  const args = launcher.args;
   log(`${options.label || "Starting dedicated server"}: ${exe}`);
-  gameProcess = spawn(exe, args, { cwd: config.serverDir, windowsHide: options.hidden !== false, env: { ...process.env } });
+  gameProcess = spawn(exe, args, { cwd: launcher.cwd || config.serverDir, windowsHide: options.hidden !== false, env: { ...process.env } });
   const pid = gameProcess.pid;
   gameProcess.stdout.on("data", data => log(data.toString().trimEnd()));
   gameProcess.stderr.on("data", data => log(data.toString().trimEnd()));
