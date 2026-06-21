@@ -849,6 +849,12 @@ function parseIni(text) {
   return values;
 }
 
+function getIniValue(values, key) {
+  const wanted = String(key || "").toLowerCase();
+  const entry = Object.entries(values || {}).find(([name]) => String(name || "").trim().toLowerCase() === wanted);
+  return entry ? entry[1] : "";
+}
+
 function updateIniText(text, desired) {
   let lines = text ? text.split(/\r?\n/) : [];
   const seen = new Set();
@@ -1094,13 +1100,23 @@ function parseImportedModListText(text) {
   const ini = parseIni(raw);
   const workshopIds = extractWorkshopIds(raw);
   const modIds = [];
+  const iniMods = getIniValue(ini, "Mods");
+  const iniWorkshopItems = getIniValue(ini, "WorkshopItems");
 
-  if (ini.Mods) modIds.push(...splitSemi(ini.Mods));
-  if (ini.WorkshopItems) workshopIds.push(...extractWorkshopIds(ini.WorkshopItems));
+  if (iniMods) modIds.push(...splitSemi(iniMods));
+  if (iniWorkshopItems) workshopIds.push(...extractWorkshopIds(iniWorkshopItems));
 
   const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   for (const line of lines) {
-    if (/^(VERSION|WorkshopItems|Mods|Map|Server|PublicName|Password)\s*=/i.test(line)) continue;
+    const keyValue = line.match(/^([^#;][^=]+)\s*=\s*(.*)$/);
+    if (keyValue) {
+      const key = keyValue[1].trim().toLowerCase();
+      const value = keyValue[2].trim();
+      if (key === "mods") modIds.push(...splitSemi(value));
+      if (key === "workshopitems") workshopIds.push(...extractWorkshopIds(value));
+      continue;
+    }
+    if (/^(VERSION|Map|Server|PublicName|Password)\s*=/i.test(line)) continue;
     if (/^\d{6,}([,;\s]+\d{6,})*$/.test(line)) {
       workshopIds.push(...extractWorkshopIds(line));
       continue;
@@ -1768,6 +1784,47 @@ function inspectWorkshopItem(config, workshopId) {
 
 function activeInternalModIds(config) {
   return new Set(sortedEnabledMods(config).flatMap(mod => mod.modIds || []).filter(Boolean));
+}
+
+function normalizeLookupName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&amp;/g, "&")
+    .replace(/['"`’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function addLookupAlias(map, alias, item) {
+  const key = normalizeLookupName(alias);
+  if (!key || map.has(key)) return;
+  map.set(key, item);
+}
+
+function buildImportLookup(config, found) {
+  const activeIds = activeInternalModIds(config);
+  const activeNames = new Set();
+  const downloadedByAlias = new Map();
+  const downloadedByWorkshop = new Map();
+
+  for (const mod of config.mods || []) {
+    for (const id of mod.modIds || []) activeNames.add(normalizeLookupName(id));
+    activeNames.add(normalizeLookupName(mod.title));
+    addLookupAlias(downloadedByAlias, mod.title, { active: true, workshopId: mod.workshopId });
+  }
+
+  for (const item of found || []) {
+    if (!downloadedByWorkshop.has(item.workshopId)) downloadedByWorkshop.set(item.workshopId, []);
+    downloadedByWorkshop.get(item.workshopId).push(item);
+    addLookupAlias(downloadedByAlias, item.modId, item);
+    addLookupAlias(downloadedByAlias, item.title, item);
+    addLookupAlias(downloadedByAlias, item.workshopId, item);
+    const cached = readCache("workshop_details", "workshop_id", item.workshopId);
+    if (cached?.value?.title) addLookupAlias(downloadedByAlias, cached.value.title, item);
+  }
+
+  return { activeIds, activeNames, downloadedByAlias, downloadedByWorkshop };
 }
 
 function modMatchesWorkshopOrModId(mod, workshopId, modId) {
@@ -2539,27 +2596,27 @@ async function addWorkshopIdsToConfig(config, workshopIds) {
 async function importModListIntoConfig(config, text) {
   const parsed = parseImportedModListText(text);
   if (!parsed.workshopIds.length && !parsed.modIds.length) {
-    throw new Error("No Workshop IDs or internal Mod IDs were found in that import text.");
+    throw new Error("No Workshop IDs, internal Mod IDs, or mod names were found in that import text.");
   }
   const workshopResult = await addWorkshopIdsToConfig(config, parsed.workshopIds);
   const found = scanDownloadedMods(config);
-  const byModId = new Map();
-  for (const item of found) {
-    if (item.modId && !byModId.has(item.modId)) byModId.set(item.modId, item);
-  }
+  const lookup = buildImportLookup(config, found);
 
   const missingModIds = [];
   const scannedMatches = [];
   for (const modId of parsed.modIds) {
-    if (activeInternalModIds(config).has(modId)) continue;
-    const item = byModId.get(modId);
+    const normalized = normalizeLookupName(modId);
+    if (lookup.activeIds.has(modId) || lookup.activeNames.has(normalized)) continue;
+    const item = lookup.downloadedByAlias.get(normalized);
     if (!item) {
       missingModIds.push(modId);
       continue;
     }
-    scannedMatches.push(item);
+    if (item.active) continue;
+    scannedMatches.push(...(lookup.downloadedByWorkshop.get(item.workshopId) || [item]));
   }
-  const scannedAdded = scannedMatches.length ? mergeScannedMods(config, scannedMatches) : 0;
+  const uniqueScannedMatches = [...new Map(scannedMatches.map(item => [`${item.workshopId}:${item.modId}`, item])).values()];
+  const scannedAdded = uniqueScannedMatches.length ? mergeScannedMods(config, uniqueScannedMatches) : 0;
   const actions = [];
   for (const mod of config.mods || []) refreshModFromDownloadedFiles(config, mod, actions, { silentBlocked: true });
   troubleshootConfig(config);
@@ -2570,7 +2627,7 @@ async function importModListIntoConfig(config, text) {
     parsed,
     added: (workshopResult.added || 0) + scannedAdded,
     workshop: workshopResult,
-    matchedModIds: scannedMatches.map(item => ({ modId: item.modId, workshopId: item.workshopId, title: item.title })),
+    matchedModIds: uniqueScannedMatches.map(item => ({ modId: item.modId, workshopId: item.workshopId, title: item.title })),
     missingModIds,
     actions
   };
